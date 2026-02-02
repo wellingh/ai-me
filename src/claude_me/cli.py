@@ -119,7 +119,9 @@ def commit_cmd(
 
     # Display the generated message
     console.print()
-    console.print(Panel(commit_message, title="Generated Commit Message", border_style="green"))
+    console.print(
+        Panel(commit_message, title="Generated Commit Message", border_style="green")
+    )
     console.print()
 
     # Confirm and commit

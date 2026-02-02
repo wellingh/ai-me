@@ -86,7 +86,7 @@ def commit(message: str) -> GitResult:
     """
     try:
         result = subprocess.run(
-            ["git", "commit", "-m", message],
+            ["git", "commit", "-am", message],
             capture_output=True,
             text=True,
         )
