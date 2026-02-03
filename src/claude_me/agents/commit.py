@@ -59,7 +59,7 @@ def generate_commit_message(diff: str, model: str | None = None) -> ClaudeRespon
     if response.success:
         # Clean up the response - remove any quotes or markdown
         message = response.result.strip()
-        message = message.strip('"\'`')
+        message = message.strip("\"'`")
         # Remove markdown code block if present
         if message.startswith("```"):
             lines = message.split("\n")

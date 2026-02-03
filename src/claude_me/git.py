@@ -1,19 +1,9 @@
 """Git operations for diff, commit, and status."""
 
-import subprocess
-from dataclasses import dataclass
+from claude_me.shell import ShellCommandResult, shell_command
 
 
-@dataclass
-class GitResult:
-    """Result from a git operation."""
-
-    output: str
-    success: bool
-    error: str | None = None
-
-
-def get_diff(staged_only: bool = True) -> GitResult:
+def get_diff(staged_only: bool = True) -> ShellCommandResult:
     """
     Get git diff of changes.
 
@@ -22,59 +12,22 @@ def get_diff(staged_only: bool = True) -> GitResult:
                      If False, get all uncommitted changes.
 
     Returns:
-        GitResult with the diff output
+        ShellCommandResult with the diff output
     """
     cmd = ["git", "diff"]
     if staged_only:
         cmd.append("--cached")
 
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True)
-
-        if result.returncode != 0:
-            return GitResult(
-                output="",
-                success=False,
-                error=result.stderr or "Git diff failed",
-            )
-
-        return GitResult(output=result.stdout, success=True)
-
-    except FileNotFoundError:
-        return GitResult(
-            output="",
-            success=False,
-            error="Git not found. Make sure 'git' is installed and in PATH.",
-        )
+    return shell_command(cmd)
 
 
-def get_status() -> GitResult:
+def get_status() -> ShellCommandResult:
     """Get git status to check for uncommitted changes."""
-    try:
-        result = subprocess.run(
-            ["git", "status", "--porcelain"],
-            capture_output=True,
-            text=True,
-        )
-
-        if result.returncode != 0:
-            return GitResult(
-                output="",
-                success=False,
-                error=result.stderr or "Git status failed",
-            )
-
-        return GitResult(output=result.stdout, success=True)
-
-    except FileNotFoundError:
-        return GitResult(
-            output="",
-            success=False,
-            error="Git not found. Make sure 'git' is installed and in PATH.",
-        )
+    cmd = ["git", "status", "--porcelain"]
+    return shell_command(cmd)
 
 
-def commit(message: str) -> GitResult:
+def commit(message: str) -> ShellCommandResult:
     """
     Create a git commit with the given message.
 
@@ -82,53 +35,20 @@ def commit(message: str) -> GitResult:
         message: The commit message
 
     Returns:
-        GitResult with the commit output
+        ShellCommandResult with the commit output
     """
-    try:
-        result = subprocess.run(
-            ["git", "commit", "-am", message],
-            capture_output=True,
-            text=True,
-        )
 
-        if result.returncode != 0:
-            return GitResult(
-                output="",
-                success=False,
-                error=result.stderr or "Git commit failed",
-            )
-
-        return GitResult(output=result.stdout, success=True)
-
-    except FileNotFoundError:
-        return GitResult(
-            output="",
-            success=False,
-            error="Git not found. Make sure 'git' is installed and in PATH.",
-        )
+    cmd = ["git", "commit", "-am", message]
+    return shell_command(cmd)
 
 
-def add_all() -> GitResult:
+def add_all() -> ShellCommandResult:
     """Stage all changes for commit."""
-    try:
-        result = subprocess.run(
-            ["git", "add", "-A"],
-            capture_output=True,
-            text=True,
-        )
+    cmd = ["git", "add", "-A"]
+    return shell_command(cmd)
 
-        if result.returncode != 0:
-            return GitResult(
-                output="",
-                success=False,
-                error=result.stderr or "Git add failed",
-            )
 
-        return GitResult(output=result.stdout, success=True)
-
-    except FileNotFoundError:
-        return GitResult(
-            output="",
-            success=False,
-            error="Git not found. Make sure 'git' is installed and in PATH.",
-        )
+def get_log() -> ShellCommandResult:
+    """Get the git log comparing from base branch."""
+    cmd = ["git", "log", "-p", "origin/main...HEAD"]
+    return shell_command(cmd)
