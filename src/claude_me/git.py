@@ -52,3 +52,62 @@ def get_log() -> ShellCommandResult:
     """Get the git log comparing from base branch."""
     cmd = ["git", "log", "-p", "origin/main...HEAD"]
     return shell_command(cmd)
+
+
+def get_current_branch() -> ShellCommandResult:
+    """Get the name of the current git branch."""
+    cmd = ["git", "rev-parse", "--abbrev-ref", "HEAD"]
+    result = shell_command(cmd)
+    if result.success:
+        result.output = result.output.strip()
+    return result
+
+
+def get_default_branch() -> ShellCommandResult:
+    """Detect the default branch of the remote origin."""
+    cmd = ["git", "remote", "show", "origin"]
+    result = shell_command(cmd)
+    if result.success:
+        for line in result.output.splitlines():
+            if "HEAD branch:" in line:
+                result.output = line.split(":")[-1].strip()
+                return result
+        # Fallback if parsing fails
+        result.output = "main"
+    return result
+
+
+def get_diff_against_branch(base_branch: str) -> ShellCommandResult:
+    """Get the diff between the current branch and a base branch."""
+    cmd = ["git", "diff", f"{base_branch}...HEAD"]
+    return shell_command(cmd)
+
+
+def get_log_against_branch(base_branch: str) -> ShellCommandResult:
+    """Get the full commit log with patches between a base branch and HEAD."""
+    cmd = ["git", "log", "-p", f"{base_branch}...HEAD"]
+    return shell_command(cmd)
+
+
+def push_branch(branch: str) -> ShellCommandResult:
+    """Push the current branch to origin with upstream tracking."""
+    cmd = ["git", "push", "-u", "origin", branch]
+    return shell_command(cmd)
+
+
+def create_pr(title: str, body: str, base: str) -> ShellCommandResult:
+    """Create a pull request using the GitHub CLI."""
+    cmd = ["gh", "pr", "create", "--title", title, "--body", body, "--base", base]
+    return shell_command(cmd)
+
+
+def get_existing_pr(branch: str) -> ShellCommandResult:
+    """Check if an open PR already exists for the given branch."""
+    cmd = ["gh", "pr", "view", branch, "--json", "url,title,body,number"]
+    return shell_command(cmd)
+
+
+def update_pr(title: str, body: str) -> ShellCommandResult:
+    """Update the title and body of the current branch's PR."""
+    cmd = ["gh", "pr", "edit", "--title", title, "--body", body]
+    return shell_command(cmd)
