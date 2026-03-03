@@ -1,6 +1,6 @@
 """Commit message agent for generating conventional commit messages."""
 
-from claude_me.claude import ClaudeResponse, invoke_claude
+from ai_me.claude import ClaudeResponse, invoke_claude
 
 COMMIT_SYSTEM_PROMPT = """You are a git commit message generator. Generate commit messages following the Conventional Commits specification.
 

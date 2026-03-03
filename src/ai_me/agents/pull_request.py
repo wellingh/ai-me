@@ -1,6 +1,6 @@
 """Pull request description agent following Linus Torvalds' kernel PR guidelines."""
 
-from claude_me.claude import ClaudeResponse, invoke_claude
+from ai_me.claude import ClaudeResponse, invoke_claude
 
 PR_SYSTEM_PROMPT = """You are a pull request description generator. Generate PR descriptions that serve as meaningful historical records, following the principles outlined by Linus Torvalds for Linux kernel pull requests.
 

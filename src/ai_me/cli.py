@@ -1,4 +1,4 @@
-"""Main CLI entrypoint for claude-me."""
+"""Main CLI entrypoint for ai."""
 
 from typing import Annotated
 
@@ -7,13 +7,14 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
 
-from claude_me import __version__
-from claude_me.agents.commit import generate_commit_message
-from claude_me.agents.pull_request import generate_pr_description, refine_pr_description
-from claude_me.git import (
+from ai_me import __version__
+from ai_me.agents.commit import generate_commit_message
+from ai_me.agents.pull_request import generate_pr_description, refine_pr_description
+from ai_me.git import (
     add_all,
     commit,
     create_pr,
+    get_changed_files,
     get_current_branch,
     get_default_branch,
     get_diff,
@@ -26,7 +27,7 @@ from claude_me.git import (
 )
 
 app = typer.Typer(
-    name="claude-me",
+    name="ai",
     help="CLI tool for Claude integration and automated workflows",
     no_args_is_help=True,
 )
@@ -36,7 +37,7 @@ console = Console()
 def version_callback(value: bool) -> None:
     """Print version and exit."""
     if value:
-        console.print(f"claude-me version {__version__}")
+        console.print(f"ai version {__version__}")
         raise typer.Exit()
 
 
@@ -53,7 +54,7 @@ def main(
         ),
     ] = False,
 ) -> None:
-    """Claude-Me: CLI tool for Claude integration and automated workflows."""
+    """ai: CLI tool for Claude integration and automated workflows."""
     pass
 
 
@@ -215,9 +216,7 @@ def pr_cmd(
         )
         raise typer.Exit(1)
 
-    console.print(
-        f"[dim]Branch:[/dim] {current_branch} -> {base_branch}"
-    )
+    console.print(f"[dim]Branch:[/dim] {current_branch} -> {base_branch}")
 
     # Check if a PR already exists for this branch
     existing_pr_result = get_existing_pr(current_branch)
@@ -269,9 +268,7 @@ def pr_cmd(
     response = generate_pr_description(log_output, diff_output, model=model)
 
     if not response.success:
-        console.print(
-            f"[red]Error generating PR description:[/red] {response.error}"
-        )
+        console.print(f"[red]Error generating PR description:[/red] {response.error}")
         raise typer.Exit(1)
 
     pr_text = response.result
@@ -369,6 +366,204 @@ def pr_cmd(
 
         console.print("[green]Pull request created successfully![/green]")
         console.print(pr_result.output)
+
+
+@app.command(name="review")
+def review_cmd(
+    model: Annotated[
+        str | None,
+        typer.Option(
+            "--model",
+            "-m",
+            help="Model to use (e.g., 'sonnet', 'opus', 'haiku')",
+        ),
+    ] = None,
+    base: Annotated[
+        str | None,
+        typer.Option(
+            "--base",
+            "-b",
+            help="Base branch to compare against (defaults to remote default branch)",
+        ),
+    ] = None,
+    severity: Annotated[
+        str | None,
+        typer.Option(
+            "--severity",
+            "-s",
+            help="Minimum severity to show: 'error', 'warning', or 'suggestion'",
+        ),
+    ] = None,
+) -> None:
+    """Review code changes against a base branch and suggest fixes."""
+    from pathlib import Path
+
+    from ai_me.agents.code_review import review_diff
+
+    severity_colors = {"error": "red", "warning": "yellow", "suggestion": "blue"}
+    severity_order = {"error": 0, "warning": 1, "suggestion": 2}
+
+    # Determine base branch
+    branch_result = get_current_branch()
+    if not branch_result.success:
+        console.print(f"[red]Error:[/red] {branch_result.error}")
+        raise typer.Exit(1)
+    current_branch = branch_result.output
+
+    if base:
+        base_branch = base
+    else:
+        console.print("[dim]Detecting default branch...[/dim]")
+        default_result = get_default_branch()
+        if not default_result.success:
+            console.print(
+                f"[red]Error detecting default branch:[/red] {default_result.error}"
+            )
+            raise typer.Exit(1)
+        base_branch = default_result.output
+
+    if current_branch == base_branch:
+        console.print(
+            f"[red]Error:[/red] You are on the base branch '{base_branch}'. "
+            "Switch to a feature branch first."
+        )
+        raise typer.Exit(1)
+
+    console.print(f"[dim]Reviewing:[/dim] {current_branch} against {base_branch}")
+
+    # Get the diff
+    console.print("[dim]Getting diff...[/dim]")
+    diff_result = get_diff_against_branch(base_branch)
+    if not diff_result.success:
+        console.print(f"[red]Error getting diff:[/red] {diff_result.error}")
+        raise typer.Exit(1)
+
+    if not diff_result.output.strip():
+        console.print(
+            f"[yellow]No changes found between '{current_branch}' and '{base_branch}'.[/yellow]"
+        )
+        raise typer.Exit(0)
+
+    # Read changed files
+    console.print("[dim]Reading changed files...[/dim]")
+    files_result = get_changed_files(base_branch)
+    file_contents: dict[str, str] = {}
+    if files_result.success:
+        for file_path in files_result.output.strip().splitlines():
+            file_path = file_path.strip()
+            if file_path:
+                try:
+                    file_contents[file_path] = Path(file_path).read_text()
+                except (OSError, UnicodeDecodeError):
+                    pass
+
+    # Call review agent
+    console.print("[dim]Reviewing changes with Claude...[/dim]")
+    result = review_diff(diff_result.output, file_contents, model=model)
+
+    if not result.success:
+        console.print(f"[red]Error during review:[/red] {result.error}")
+        raise typer.Exit(1)
+
+    if not result.findings:
+        console.print("[green]No issues found. Code looks good![/green]")
+        raise typer.Exit(0)
+
+    # Filter by severity
+    findings = result.findings
+    if severity and severity in severity_order:
+        min_level = severity_order[severity]
+        findings = [
+            f for f in findings if severity_order.get(f.severity, 2) <= min_level
+        ]
+
+    if not findings:
+        console.print("[green]No issues at the requested severity level.[/green]")
+        raise typer.Exit(0)
+
+    # Summary
+    counts: dict[str, int] = {"error": 0, "warning": 0, "suggestion": 0}
+    for f in findings:
+        counts[f.severity] = counts.get(f.severity, 0) + 1
+
+    summary = (
+        f"Found [bold]{len(findings)}[/bold] findings: "
+        f"[red]{counts['error']} errors[/red], "
+        f"[yellow]{counts['warning']} warnings[/yellow], "
+        f"[blue]{counts['suggestion']} suggestions[/blue]"
+    )
+    console.print()
+    console.print(Panel(summary, title="Review Summary", border_style="cyan"))
+    console.print()
+
+    # Interactive loop
+    applied = 0
+    for i, finding in enumerate(findings, 1):
+        color = severity_colors.get(finding.severity, "white")
+
+        body = f"[bold]File:[/bold] {finding.file}:{finding.line_hint}\n\n"
+        body += f"{finding.explanation}\n\n"
+        body += f"[dim]--- Original ---[/dim]\n{finding.original}\n\n"
+        body += f"[green]+++ Suggested fix +++[/green]\n{finding.replacement}"
+
+        console.print(
+            Panel(
+                body,
+                title=f"[{color}][{finding.severity.upper()}][/{color}] {finding.title}  ({i}/{len(findings)})",
+                border_style=color,
+            )
+        )
+        console.print()
+
+        choice = Prompt.ask(
+            "[bold]\\[a][/bold] Accept fix  "
+            "[bold]\\[s][/bold] Skip  "
+            "[bold]\\[q][/bold] Quit review",
+            choices=["a", "s", "q"],
+            default="s",
+        )
+
+        if choice == "q":
+            console.print("[yellow]Review stopped.[/yellow]")
+            break
+
+        if choice == "a":
+            file_path = Path(finding.file)
+            if not file_path.exists():
+                console.print(
+                    f"[red]Could not apply fix:[/red] File not found: {finding.file}"
+                )
+            else:
+                try:
+                    content = file_path.read_text()
+                    if finding.original not in content:
+                        console.print(
+                            "[red]Could not apply fix:[/red] "
+                            "Exact text not found in file (may have already been modified)."
+                        )
+                    elif content.count(finding.original) > 1:
+                        console.print(
+                            "[red]Could not apply fix:[/red] "
+                            "Multiple occurrences found. Fix is ambiguous."
+                        )
+                    else:
+                        file_path.write_text(
+                            content.replace(finding.original, finding.replacement, 1)
+                        )
+                        console.print("[green]Fix applied.[/green]")
+                        applied += 1
+                except OSError as e:
+                    console.print(f"[red]Could not apply fix:[/red] {e}")
+
+        console.print()
+
+    # Final summary
+    console.print()
+    console.print(
+        f"Applied [bold]{applied}[/bold] of [bold]{len(findings)}[/bold] fixes."
+    )
+    if applied > 0:
+        console.print("[dim]Run 'git diff' to review the applied changes.[/dim]")
 
 
 if __name__ == "__main__":

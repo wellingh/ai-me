@@ -1,5 +1,5 @@
 [project]
-name = "claude-me"
+name = "ai"
 version = "0.1.0"
 description = "CLI tool for Claude integration and automated workflows"
 readme = "README.md"
@@ -10,7 +10,7 @@ dependencies = [
 ]
 
 [project.scripts]
-claude-me = "claude_me.cli:app"
+ai = "claude_me.cli:app"
 
 [build-system]
 requires = ["hatchling"]

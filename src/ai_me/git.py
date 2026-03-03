@@ -1,6 +1,6 @@
 """Git operations for diff, commit, and status."""
 
-from claude_me.shell import ShellCommandResult, shell_command
+from ai_me.shell import ShellCommandResult, shell_command
 
 
 def get_diff(staged_only: bool = True) -> ShellCommandResult:
@@ -86,6 +86,15 @@ def get_diff_against_branch(base_branch: str) -> ShellCommandResult:
 def get_log_against_branch(base_branch: str) -> ShellCommandResult:
     """Get the full commit log with patches between a base branch and HEAD."""
     cmd = ["git", "log", "-p", f"{base_branch}...HEAD"]
+    return shell_command(cmd)
+
+
+def get_changed_files(base_branch: str) -> ShellCommandResult:
+    """Get the list of files changed between a base branch and HEAD.
+
+    Returns file paths one per line (only added/modified, not deleted).
+    """
+    cmd = ["git", "diff", "--name-only", "--diff-filter=ACM", f"{base_branch}...HEAD"]
     return shell_command(cmd)
 
 

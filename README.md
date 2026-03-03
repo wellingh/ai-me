@@ -1,4 +1,4 @@
-# claude-me
+# ai
 
 CLI tool for Claude integration and automated workflows.
 
@@ -12,11 +12,11 @@ uv sync
 
 ```bash
 # Generate commit message and commit
-claude-me commit
+ai commit
 
 # Skip confirmation
-claude-me commit --yes
+ai commit --yes
 
 # Include all changes (not just staged)
-claude-me commit --all
+ai commit --all
 ```
