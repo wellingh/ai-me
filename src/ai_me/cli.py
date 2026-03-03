@@ -1,5 +1,7 @@
 """Main CLI entrypoint for ai."""
 
+import json as _json
+from pathlib import Path
 from typing import Annotated
 
 import typer
@@ -21,6 +23,7 @@ from ai_me.git import (
     get_diff_against_branch,
     get_existing_pr,
     get_log_against_branch,
+    get_repo_info,
     get_status,
     push_branch,
     update_pr,
@@ -394,11 +397,23 @@ def review_cmd(
             help="Minimum severity to show: 'error', 'warning', or 'suggestion'",
         ),
     ] = None,
+    verbose: Annotated[
+        bool,
+        typer.Option(
+            "--verbose",
+            help="Enable debug logging for troubleshooting",
+        ),
+    ] = False,
 ) -> None:
     """Review code changes against a base branch and suggest fixes."""
-    from pathlib import Path
+    import logging
 
     from ai_me.agents.code_review import review_diff
+
+    if verbose:
+        logging.basicConfig(
+            level=logging.DEBUG, format="%(name)s %(levelname)s: %(message)s"
+        )
 
     severity_colors = {"error": "red", "warning": "yellow", "suggestion": "blue"}
     severity_order = {"error": 0, "warning": 1, "suggestion": 2}
@@ -431,35 +446,55 @@ def review_cmd(
 
     console.print(f"[dim]Reviewing:[/dim] {current_branch} against {base_branch}")
 
-    # Get the diff
-    console.print("[dim]Getting diff...[/dim]")
-    diff_result = get_diff_against_branch(base_branch)
-    if not diff_result.success:
-        console.print(f"[red]Error getting diff:[/red] {diff_result.error}")
+    # Get GitHub org/repo for the output path
+    console.print("[dim]Getting repository info...[/dim]")
+    repo_info_result = get_repo_info()
+    if not repo_info_result.success:
+        console.print(f"[red]Error getting repo info:[/red] {repo_info_result.error}")
+        raise typer.Exit(1)
+    try:
+        repo_data = _json.loads(repo_info_result.output)
+        org = repo_data["owner"]["login"]
+        repo = repo_data["name"]
+    except (KeyError, _json.JSONDecodeError) as e:
+        console.print(f"[red]Error parsing repo info:[/red] {e}")
         raise typer.Exit(1)
 
-    if not diff_result.output.strip():
+    # Determine identifier: PR number if a PR exists, else sanitized branch name
+    existing_pr_result = get_existing_pr(current_branch)
+    existing_pr = None
+    if existing_pr_result.success:
+        try:
+            existing_pr = _json.loads(existing_pr_result.output)
+        except _json.JSONDecodeError:
+            pass
+    identifier = (
+        str(existing_pr["number"]) if existing_pr else current_branch.replace("/", "-")
+    )
+
+    # Build output path and ensure parent dirs exist
+    output_path = Path.home() / ".ai" / org / repo / f"{identifier}_review.json"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.unlink(missing_ok=True)
+
+    # Get changed files
+    console.print("[dim]Getting changed files...[/dim]")
+    files_result = get_changed_files(base_branch)
+    if not files_result.success:
+        console.print(f"[red]Error getting changed files:[/red] {files_result.error}")
+        raise typer.Exit(1)
+    changed_files = [
+        f.strip() for f in files_result.output.strip().splitlines() if f.strip()
+    ]
+    if not changed_files:
         console.print(
-            f"[yellow]No changes found between '{current_branch}' and '{base_branch}'.[/yellow]"
+            f"[yellow]No changed files between '{current_branch}' and '{base_branch}'.[/yellow]"
         )
         raise typer.Exit(0)
 
-    # Read changed files
-    console.print("[dim]Reading changed files...[/dim]")
-    files_result = get_changed_files(base_branch)
-    file_contents: dict[str, str] = {}
-    if files_result.success:
-        for file_path in files_result.output.strip().splitlines():
-            file_path = file_path.strip()
-            if file_path:
-                try:
-                    file_contents[file_path] = Path(file_path).read_text()
-                except (OSError, UnicodeDecodeError):
-                    pass
-
-    # Call review agent
-    console.print("[dim]Reviewing changes with Claude...[/dim]")
-    result = review_diff(diff_result.output, file_contents, model=model)
+    # Delegate review to Claude agent
+    console.print("[dim]Reviewing changes with Claude (agent mode)...[/dim]")
+    result = review_diff(changed_files, base_branch, str(output_path), model=model)
 
     if not result.success:
         console.print(f"[red]Error during review:[/red] {result.error}")
@@ -467,6 +502,7 @@ def review_cmd(
 
     if not result.findings:
         console.print("[green]No issues found. Code looks good![/green]")
+        console.print(f"[dim]Review saved to:[/dim] {output_path}")
         raise typer.Exit(0)
 
     # Filter by severity
@@ -494,6 +530,7 @@ def review_cmd(
     )
     console.print()
     console.print(Panel(summary, title="Review Summary", border_style="cyan"))
+    console.print(f"[dim]Review saved to:[/dim] {output_path}")
     console.print()
 
     # Interactive loop

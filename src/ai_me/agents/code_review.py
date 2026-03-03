@@ -1,9 +1,13 @@
 """Code review agent for reviewing PR diffs and suggesting fixes."""
 
 import json
+import logging
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from ai_me.claude import invoke_claude
+
+logger = logging.getLogger(__name__)
 
 REVIEW_SYSTEM_PROMPT = """You are a senior code reviewer with deep expertise across programming languages and their ecosystems. You review code changes (diffs) and the full source files to find issues and suggest concrete fixes.
 
@@ -70,6 +74,18 @@ You MUST adapt your review to the language and ecosystem of the code being revie
 6. **DRY**: Flag duplicated logic that should be extracted, but do NOT flag intentional repetition where abstraction would hurt readability.
 7. **Testing**: Flag untestable patterns (hidden dependencies, global state, tight coupling) and suggest how to make the code testable.
 
+## Your Workflow
+
+You receive a list of changed file paths and a base branch name.
+For each file:
+1. Run Bash: `git diff <base_branch>...HEAD -- <file_path>` to see exactly what changed.
+2. Use Read: read the current full content of the file.
+3. Review ONLY the code that was changed in the diff.
+
+After analyzing all files, write your complete findings JSON to the path
+specified in the prompt using the Write tool.
+Do NOT return JSON in your text response — write it to the file only.
+
 ## Rules
 
 - ONLY review code that was CHANGED in the diff. Do not review unchanged code.
@@ -82,12 +98,14 @@ You MUST adapt your review to the language and ecosystem of the code being revie
   - "error": Bugs, crashes, security issues, data loss risks, resource leaks
   - "warning": SOLID violations, non-idiomatic patterns, missing error handling, potential edge cases, testability issues
   - "suggestion": More idiomatic alternatives, naming improvements, minor maintainability enhancements
-- If you find no issues, return an empty findings array.
+- If you find no issues, write a JSON object with an empty findings array.
 - Do NOT suggest changes that are purely cosmetic with no readability or maintainability benefit.
 
 ## Output Format
 
-Return a JSON object with this exact structure:
+Write a JSON object to the output path using the Write tool. Do not include the JSON in your text response.
+
+The JSON must have this exact structure:
 {
     "findings": [
         {
@@ -100,9 +118,7 @@ Return a JSON object with this exact structure:
             "line_hint": 42
         }
     ]
-}
-
-Return ONLY the JSON object. No markdown fences, no explanations outside the JSON."""
+}"""
 
 
 @dataclass
@@ -128,49 +144,55 @@ class ReviewResult:
 
 
 def review_diff(
-    diff: str,
-    file_contents: dict[str, str],
+    changed_files: list[str],
+    base_branch: str,
+    output_path: str,
     model: str | None = None,
 ) -> ReviewResult:
     """
-    Review a diff and return structured findings with suggested fixes.
+    Review changed files using Claude as an autonomous agent.
+
+    Claude uses Bash (git diff) and Read to gather context per file,
+    then writes the findings JSON to output_path using the Write tool.
 
     Args:
-        diff: The git diff output (changes against base branch)
-        file_contents: Dict mapping file paths to their full contents
-        model: Optional model to use
+        changed_files: List of file paths changed relative to base_branch
+        base_branch: The branch to diff against (e.g. 'main')
+        output_path: Absolute path where Claude must write the JSON result
+        model: Optional model override
 
     Returns:
-        ReviewResult with list of findings
+        ReviewResult parsed from the file Claude wrote
     """
-    if not diff.strip():
-        return ReviewResult(
-            success=False,
-            error="No changes to review",
-        )
+    if not changed_files:
+        return ReviewResult(success=False, error="No changed files to review")
 
-    context_parts = [f"## Diff\n\n```diff\n{diff}\n```"]
-
-    for path, content in file_contents.items():
-        context_parts.append(f"## File: {path}\n\n```\n{content}\n```")
-
-    context = "\n\n".join(context_parts)
-    prompt = "Review the following code changes and identify issues. Return your findings as JSON."
+    files_list = "\n".join(f"  - {f}" for f in changed_files)
+    prompt = (
+        f"Review the following changed files against base branch '{base_branch}'.\n\n"
+        f"Changed files:\n{files_list}\n\n"
+        f"Write your findings as JSON to: {output_path}"
+    )
 
     response = invoke_claude(
         prompt=prompt,
-        context=context,
         system_prompt=REVIEW_SYSTEM_PROMPT,
         model=model,
+        allowed_tools=["Read", "Bash(git diff*)", "Write"],
     )
 
     if not response.success:
+        return ReviewResult(success=False, error=response.error)
+
+    try:
+        raw = Path(output_path).read_text()
+    except OSError as e:
         return ReviewResult(
             success=False,
-            error=response.error,
+            error=f"Claude did not write output to {output_path}: {e}",
         )
 
-    return _parse_review_response(response.result)
+    return _parse_review_response(raw)
 
 
 def _parse_review_response(raw: str) -> ReviewResult:

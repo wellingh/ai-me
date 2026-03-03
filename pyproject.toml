@@ -4,20 +4,17 @@ version = "0.1.0"
 description = "CLI tool for Claude integration and automated workflows"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = [
-    "typer>=0.9.0",
-    "rich>=13.0.0",
-]
+dependencies = ["typer>=0.9.0", "rich>=13.0.0"]
 
 [project.scripts]
-ai = "claude_me.cli:app"
+ai = "ai_me.cli:app"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/claude_me"]
+packages = ["src/ai_me"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/claude_me"]
+include = ["src/ai_me"]

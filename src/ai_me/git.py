@@ -120,3 +120,11 @@ def update_pr(title: str, body: str) -> ShellCommandResult:
     """Update the title and body of the current branch's PR."""
     cmd = ["gh", "pr", "edit", "--title", title, "--body", body]
     return shell_command(cmd)
+
+
+def get_repo_info() -> ShellCommandResult:
+    """Get the GitHub repository owner (org) and name via gh CLI.
+
+    Output JSON shape: {"owner": {"login": "<org>"}, "name": "<repo>"}
+    """
+    return shell_command(["gh", "repo", "view", "--json", "owner,name"])
