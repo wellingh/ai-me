@@ -16,6 +16,7 @@ from ai_me.git import (
     add_all,
     commit,
     create_pr,
+    get_all_files,
     get_changed_files,
     get_current_branch,
     get_default_branch,
@@ -397,6 +398,14 @@ def review_cmd(
             help="Minimum severity to show: 'error', 'warning', or 'suggestion'",
         ),
     ] = None,
+    all_files: Annotated[
+        bool,
+        typer.Option(
+            "--all",
+            "-A",
+            help="Review the entire codebase instead of only changed files",
+        ),
+    ] = False,
     verbose: Annotated[
         bool,
         typer.Option(
@@ -405,7 +414,7 @@ def review_cmd(
         ),
     ] = False,
 ) -> None:
-    """Review code changes against a base branch and suggest fixes."""
+    """Review code changes or the full codebase using Claude as an agent."""
     import logging
 
     from ai_me.agents.code_review import review_diff
@@ -437,14 +446,7 @@ def review_cmd(
             raise typer.Exit(1)
         base_branch = default_result.output
 
-    if current_branch == base_branch:
-        console.print(
-            f"[red]Error:[/red] You are on the base branch '{base_branch}'. "
-            "Switch to a feature branch first."
-        )
-        raise typer.Exit(1)
-
-    console.print(f"[dim]Reviewing:[/dim] {current_branch} against {base_branch}")
+    full_review = all_files or (current_branch == base_branch)
 
     # Get GitHub org/repo for the output path
     console.print("[dim]Getting repository info...[/dim]")
@@ -460,41 +462,54 @@ def review_cmd(
         console.print(f"[red]Error parsing repo info:[/red] {e}")
         raise typer.Exit(1)
 
-    # Determine identifier: PR number if a PR exists, else sanitized branch name
-    existing_pr_result = get_existing_pr(current_branch)
-    existing_pr = None
-    if existing_pr_result.success:
-        try:
-            existing_pr = _json.loads(existing_pr_result.output)
-        except _json.JSONDecodeError:
-            pass
-    identifier = (
-        str(existing_pr["number"]) if existing_pr else current_branch.replace("/", "-")
-    )
+    if full_review:
+        # Full codebase mode: review every tracked file
+        console.print("[dim]Getting all tracked files...[/dim]")
+        files_result = get_all_files()
+        if not files_result.success:
+            console.print(f"[red]Error getting files:[/red] {files_result.error}")
+            raise typer.Exit(1)
+        files = [f.strip() for f in files_result.output.strip().splitlines() if f.strip()]
+        if not files:
+            console.print("[yellow]No tracked files found.[/yellow]")
+            raise typer.Exit(0)
+        identifier = "all"
+        base_branch_arg = None
+        console.print(f"[dim]Full codebase review:[/dim] {len(files)} files on '{current_branch}'")
+    else:
+        # Diff mode: review only files changed relative to base branch
+        console.print("[dim]Getting changed files...[/dim]")
+        files_result = get_changed_files(base_branch)
+        if not files_result.success:
+            console.print(f"[red]Error getting changed files:[/red] {files_result.error}")
+            raise typer.Exit(1)
+        files = [f.strip() for f in files_result.output.strip().splitlines() if f.strip()]
+        if not files:
+            console.print(
+                f"[yellow]No changed files between '{current_branch}' and '{base_branch}'.[/yellow]"
+            )
+            raise typer.Exit(0)
+        existing_pr_result = get_existing_pr(current_branch)
+        existing_pr = None
+        if existing_pr_result.success:
+            try:
+                existing_pr = _json.loads(existing_pr_result.output)
+            except _json.JSONDecodeError:
+                pass
+        identifier = (
+            str(existing_pr["number"]) if existing_pr else current_branch.replace("/", "-")
+        )
+        base_branch_arg = base_branch
+        console.print(f"[dim]Reviewing:[/dim] {current_branch} against {base_branch}")
 
     # Build output path and ensure parent dirs exist
     output_path = Path.home() / ".ai" / org / repo / f"{identifier}_review.json"
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.unlink(missing_ok=True)
 
-    # Get changed files
-    console.print("[dim]Getting changed files...[/dim]")
-    files_result = get_changed_files(base_branch)
-    if not files_result.success:
-        console.print(f"[red]Error getting changed files:[/red] {files_result.error}")
-        raise typer.Exit(1)
-    changed_files = [
-        f.strip() for f in files_result.output.strip().splitlines() if f.strip()
-    ]
-    if not changed_files:
-        console.print(
-            f"[yellow]No changed files between '{current_branch}' and '{base_branch}'.[/yellow]"
-        )
-        raise typer.Exit(0)
-
     # Delegate review to Claude agent
-    console.print("[dim]Reviewing changes with Claude (agent mode)...[/dim]")
-    result = review_diff(changed_files, base_branch, str(output_path), model=model)
+    console.print("[dim]Reviewing with Claude (agent mode)...[/dim]")
+    result = review_diff(files, str(output_path), base_branch=base_branch_arg, model=model)
 
     if not result.success:
         console.print(f"[red]Error during review:[/red] {result.error}")

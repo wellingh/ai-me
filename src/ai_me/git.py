@@ -122,6 +122,11 @@ def update_pr(title: str, body: str) -> ShellCommandResult:
     return shell_command(cmd)
 
 
+def get_all_files() -> ShellCommandResult:
+    """Get all files tracked by git in the current repository."""
+    return shell_command(["git", "ls-files"])
+
+
 def get_repo_info() -> ShellCommandResult:
     """Get the GitHub repository owner (org) and name via gh CLI.
 
