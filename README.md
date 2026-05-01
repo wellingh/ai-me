@@ -86,6 +86,15 @@ default = "ollama:gemma4:latest"
 [ollama]
 base_url = "http://localhost:11434"    # Ollama server URL (default shown)
 
+# Anthropic-specific settings.
+# Only relevant when using an anthropic model.
+# Use these to point at an Anthropic-compatible proxy (e.g. LiteLLM).
+# If unset, the standard ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN /
+# ANTHROPIC_API_KEY environment variables are honored.
+[anthropic]
+# base_url   = "http://localhost:36253"
+# auth_token = "cloudflare"
+
 # Per-command model overrides.
 # If set, these take priority over [model].default for the specific command.
 
@@ -109,6 +118,15 @@ model = "ollama:gemma4:latest"         # Model used by `ai pr`
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `base_url` | string | `http://localhost:11434` | The URL of your Ollama server. Only used when the selected model's provider is `ollama` |
+
+#### `[anthropic]`
+
+Only used when the selected model's provider is `anthropic`. Useful for routing through an Anthropic-compatible proxy such as LiteLLM. When a value is unset in the config file, the corresponding environment variable is used as a fallback.
+
+| Key | Type | Default | Env fallback | Description |
+|-----|------|---------|--------------|-------------|
+| `base_url` | string | *none* | `ANTHROPIC_BASE_URL` | Override the Anthropic API base URL (e.g. a local LiteLLM proxy) |
+| `auth_token` | string | *none* | `ANTHROPIC_AUTH_TOKEN` | Bearer token sent in the `Authorization` header (matches the Claude Code convention) |
 
 #### `[commit]`
 

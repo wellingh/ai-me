@@ -27,6 +27,18 @@ class OllamaSettings(BaseModel):
     base_url: str = "http://localhost:11434"
 
 
+class AnthropicSettings(BaseModel):
+    """Anthropic-specific settings from [anthropic] section.
+
+    When set, these override the Anthropic SDK defaults — useful for pointing
+    at an Anthropic-compatible proxy like LiteLLM. If left unset, the standard
+    ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN / ANTHROPIC_API_KEY env vars apply.
+    """
+
+    base_url: str | None = None
+    auth_token: str | None = None
+
+
 class CommandSettings(BaseModel):
     """Per-command settings (used for [commit] and [pr] sections)."""
 
@@ -43,6 +55,7 @@ class AiMeSettings(BaseSettings):
 
     model: ModelSettings = ModelSettings()
     ollama: OllamaSettings = OllamaSettings()
+    anthropic: AnthropicSettings = AnthropicSettings()
     commit: CommandSettings = CommandSettings()
     pr: CommandSettings = CommandSettings()
 
@@ -100,4 +113,15 @@ def resolve_model_config(
         else None
     )
 
-    return ModelConfig.from_string(model_string, ollama_base_url=ollama_base_url)
+    anthropic_base_url: str | None = None
+    anthropic_auth_token: str | None = None
+    if model_string.startswith("anthropic:"):
+        anthropic_base_url = settings.anthropic.base_url or os.environ.get("ANTHROPIC_BASE_URL")
+        anthropic_auth_token = settings.anthropic.auth_token or os.environ.get("ANTHROPIC_AUTH_TOKEN")
+
+    return ModelConfig.from_string(
+        model_string,
+        ollama_base_url=ollama_base_url,
+        anthropic_base_url=anthropic_base_url,
+        anthropic_auth_token=anthropic_auth_token,
+    )
